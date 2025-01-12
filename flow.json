@@ -1,0 +1,266 @@
+[
+    {
+        "id": "f31b3a0f167fe56c",
+        "type": "tab",
+        "label": "RTE",
+        "disabled": false,
+        "info": "",
+        "env": [
+            {
+                "name": "RTE_CLIENT_ID",
+                "type": "cred"
+            },
+            {
+                "name": "RTE_SECRET_ID",
+                "type": "cred"
+            }
+        ]
+    },
+    {
+        "id": "2b25ad8079598983",
+        "type": "group",
+        "z": "f31b3a0f167fe56c",
+        "name": "RTE authentication management",
+        "style": {
+            "fill": "#ffefbf",
+            "label": true,
+            "stroke": "#777777",
+            "color": "#777777",
+            "fill-opacity": "0.5"
+        },
+        "nodes": [
+            "550641d44fda19f3",
+            "e24d596d195f8ba3",
+            "b8efebdaf62932d1",
+            "01769d3958446bba",
+            "2e5ffed2a89a5bd0"
+        ],
+        "x": 34,
+        "y": 39,
+        "w": 782,
+        "h": 122
+    },
+    {
+        "id": "1fcc793af919d3c7",
+        "type": "group",
+        "z": "f31b3a0f167fe56c",
+        "name": "Get Tempo color from RTE",
+        "style": {
+            "stroke": "#777777",
+            "fill": "#c8e7a7",
+            "fill-opacity": "0.5",
+            "label": true,
+            "color": "#777777"
+        },
+        "nodes": [
+            "c9f3ca065afb172a",
+            "5b7b832374681413",
+            "fb1117fc697dd4f1",
+            "26eb12ae112d6364"
+        ],
+        "x": 34,
+        "y": 199,
+        "w": 972,
+        "h": 82
+    },
+    {
+        "id": "550641d44fda19f3",
+        "type": "inject",
+        "z": "f31b3a0f167fe56c",
+        "g": "2b25ad8079598983",
+        "name": "Start",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "1",
+        "topic": "",
+        "payload": "\"\"",
+        "payloadType": "str",
+        "x": 130,
+        "y": 80,
+        "wires": [
+            [
+                "e24d596d195f8ba3"
+            ]
+        ]
+    },
+    {
+        "id": "e24d596d195f8ba3",
+        "type": "function",
+        "z": "f31b3a0f167fe56c",
+        "g": "2b25ad8079598983",
+        "name": "Get access token from RTE API",
+        "func": "/**\n * @fileoverview OAuth2 token management for RTE API\n * @author Ikes\n * @version 1.0.0\n */\n\n/**\n * Configuration constants\n * @constant {Object} CONFIG\n */\nconst CONFIG = {\n    TOKEN_ENDPOINT: 'https://digital.iservices.rte-france.com/token/oauth/',\n    REFRESH_INTERVAL_MINUTES: 60,\n    TIMEZONE: 'Europe/Paris'\n};\n\n/**\n * Main handler for OAuth2 token management\n * @param {Object} msg - Message object from Node-RED\n * @returns {void}\n */\nfunction handleOAuth2(msg) {\n    // Retrieve current OAuth2 data from flow context\n    let oauth2Data = flow.get('rteToken') || {\n        accessTokenURL: CONFIG.TOKEN_ENDPOINT,\n        accessToken: '',\n        tokenType: '',\n        tokenRefreshDelay: CONFIG.REFRESH_INTERVAL_MINUTES * 60000,\n        tokenRefreshTimer: null\n    };\n\n    // Handles OAuth2 response\n    if (msg.oauth2Response) {\n        return handleOAuth2Response(msg.oauth2Response, oauth2Data);\n    }\n\n    // Send OAuth2 request\n    sendOAuth2Request(oauth2Data);\n}\n\n/**\n * Handles OAuth2 response and manages token refresh scheduling\n * @param {Object} response - OAuth2 response object\n * @param {string} response.access_token - Access token\n * @param {string} response.token_type - Token type\n * @param {Object} oauth2Data - Current OAuth2 data from flow context\n * @returns {void}\n */\nfunction handleOAuth2Response(response, oauth2Data) {\n    // Update token information\n    oauth2Data.accessToken = response.access_token;\n    oauth2Data.tokenType = response.token_type;\n\n    // Store updated data in flow context\n    flow.set('rteToken', oauth2Data);\n\n    // Clear existing timer if present\n    if (oauth2Data.tokenRefreshTimer) {\n        clearTimeout(oauth2Data.tokenRefreshTimer);\n    }\n\n    // Set up new refresh timer\n    oauth2Data.tokenRefreshTimer = setTimeout(\n        () => sendOAuth2Request(oauth2Data),\n        oauth2Data.tokenRefreshDelay\n    );\n}\n\n/**\n * Sends OAuth2 request with client credentials\n * @param {Object} oauth2Data - The OAuth2 configuration data\n * @param {string} oauth2Data.accessTokenURL - The token endpoint URL\n * @param {number} oauth2Data.tokenRefreshDelay - Milliseconds until token refresh\n * @returns {void}\n */\nfunction sendOAuth2Request(oauth2Data) {\n    const clientID = env.get('RTE_CLIENT_ID');\n    const secretID = env.get('RTE_SECRET_ID');\n\n    if (!clientID || !secretID) {\n        node.error('Missing RTE credentials in environment variables');\n        node.status({\n            fill: 'red',\n            shape: 'dot',\n            text: 'Missing credentials'\n        });\n        return;\n    }\n\n    const nextRefresh = new Date(Date.now() + oauth2Data.tokenRefreshDelay);\n\n    node.status({\n        fill: 'blue',\n        shape: 'dot',\n        text: `Refresh token at ${nextRefresh.toLocaleTimeString('fr-FR', { timeZone: CONFIG.TIMEZONE })}`\n    });\n\n    /**\n     * @type {Object} oauth2Request - OAuth2 request object\n     * @property {Object} credentials - Client credentials\n     * @property {string} credentials.grant_type - OAuth2 grant type\n     * @property {string} credentials.client_id - Client ID\n     * @property {string} credentials.client_secret - Client secret\n     * @property {string} credentials.scope - OAuth2 scope (empty in this case)\n     */\n    node.send({\n        oauth2Request: {\n            access_token_url: oauth2Data.accessTokenURL,\n            credentials: {\n                grant_type: 'client_credentials',\n                client_id: clientID,\n                client_secret: secretID,\n                scope: ''\n            }\n        }\n    });\n\n    node.done();\n}\n\n// Entry point\nhandleOAuth2(msg);",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "/**\n * @fileoverview Startup configuration for RTE OAuth2 token management\n * @description This code runs once when the node is started, initializing the OAuth2 configuration\n * and setting up the initial flow context.\n */\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "finalize": "/**\n * @fileoverview Cleanup handler for RTE OAuth2 token management\n * @description This code runs when the node is stopped or redeployed,\n * ensuring proper cleanup of timers and context data.\n */\n\n// Retrieve current OAuth2 data from flow context\nconst oauth2Data = flow.get('rteToken') || {};\n\nif (oauth2Data) {\n    // Clear existing timer if present\n    if (oauth2Data.tokenRefreshTimer) {\n        clearTimeout(oauth2Data.tokenRefreshTimer);\n        oauth2Data.tokenRefreshTimer = null;\n    }\n\n    // Update the flow context with cleaned up data\n    flow.set('rteToken', oauth2Data);\n}\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "libs": [],
+        "x": 390,
+        "y": 80,
+        "wires": [
+            [
+                "2e5ffed2a89a5bd0"
+            ]
+        ],
+        "icon": "font-awesome/fa-user-secret"
+    },
+    {
+        "id": "b8efebdaf62932d1",
+        "type": "link out",
+        "z": "f31b3a0f167fe56c",
+        "g": "2b25ad8079598983",
+        "name": "link out 29",
+        "mode": "link",
+        "links": [
+            "01769d3958446bba"
+        ],
+        "x": 775,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "01769d3958446bba",
+        "type": "link in",
+        "z": "f31b3a0f167fe56c",
+        "g": "2b25ad8079598983",
+        "name": "link in 16",
+        "links": [
+            "b8efebdaf62932d1"
+        ],
+        "x": 165,
+        "y": 120,
+        "wires": [
+            [
+                "e24d596d195f8ba3"
+            ]
+        ]
+    },
+    {
+        "id": "2e5ffed2a89a5bd0",
+        "type": "oauth2",
+        "z": "f31b3a0f167fe56c",
+        "g": "2b25ad8079598983",
+        "name": "",
+        "container": "oauth2Response",
+        "grant_type": "set_by_credentials",
+        "access_token_url": "",
+        "authorization_endpoint": "",
+        "redirect_uri": "",
+        "open_authentication": "",
+        "username": "",
+        "password": "",
+        "client_id": "",
+        "client_secret": "",
+        "response_type": "",
+        "access_type": "",
+        "refresh_token": "",
+        "prompt": "",
+        "scope": "",
+        "resource": "",
+        "state": "",
+        "debug": false,
+        "force": false,
+        "senderr": false,
+        "client_credentials_in_body": false,
+        "rejectUnauthorized": true,
+        "headers": {},
+        "x": 630,
+        "y": 80,
+        "wires": [
+            [
+                "b8efebdaf62932d1"
+            ]
+        ]
+    },
+    {
+        "id": "c9f3ca065afb172a",
+        "type": "function",
+        "z": "f31b3a0f167fe56c",
+        "g": "1fcc793af919d3c7",
+        "name": "Get Tempo data from RTE",
+        "func": "/**\n * @fileoverview RTE Tempo Calendar API request handler\n * @author Ikes\n * @version 1.0.0\n */\n\n/**\n * Constants for API configuration\n */\nconst API_CONFIG = {\n    BASE_URL: 'https://digital.iservices.rte-france.com/open_api/tempo_like_supply_contract/v1/tempo_like_calendars',\n    ACCEPT_HEADER: 'application/json'\n};\n\n/**\n * Status messages for node feedback\n */\nconst STATUS = {\n    ERROR: {\n        fill: 'red',\n        shape: 'dot',\n        text: 'Missing OAuth2 credentials'\n    },\n    REQUESTING: (startDate, endDate) => ({\n        fill: 'blue',\n        shape: 'dot',\n        text: `Requesting ${startDate} to ${endDate}`\n    })\n};\n\n/**\n * Formats a date to ISO string with timezone\n * @param {Date} date - Date to format\n * @returns {string} Formatted date string\n */\nfunction formatDateWithTimezone(date) {\n    return `${date.toISOString().split('T')[0]}T00:00:00+01:00`;\n}\n\n/**\n * Determines the start date of the Tempo period\n * @returns {Date} Start date of the current Tempo period\n */\nfunction getTempoStartDate() {\n    const currentDate = new Date();\n    const currentYear = currentDate.getFullYear();\n    // If current month is September or later, use current year, otherwise use previous year\n    return new Date(currentYear - (currentDate.getMonth() >= 8 ? 0 : 1), 8, 1);\n}\n\n/**\n * Validates OAuth2 credentials\n * @param {Object} oauth2Data - OAuth2 credentials\n * @returns {boolean} True if credentials are valid\n */\nfunction validateOAuth2Credentials(oauth2Data) {\n    return oauth2Data && oauth2Data.accessToken && oauth2Data.tokenType;\n}\n\n/**\n * Sends request to RTE Tempo calendar API\n * @returns {void}\n */\nfunction sendTempoRequest() {\n    // Retrieve and validate OAuth2 credentials\n    const oauth2Data = flow.get('rteToken') || {};\n    if (!validateOAuth2Credentials(oauth2Data)) {\n        node.error('Missing OAuth2 credentials');\n        node.status(STATUS.ERROR);\n        return;\n    }\n\n    // Calculate relevant dates\n    const periodStartDate = getTempoStartDate();\n    const tomorrow = new Date(Date.now() + 86400000 * 2);\n\n    // Format dates for API request\n    const startDateFormatted = formatDateWithTimezone(periodStartDate);\n    const endDateFormatted = formatDateWithTimezone(tomorrow);\n\n    // Update node status\n    node.status(STATUS.REQUESTING(\n        periodStartDate.toISOString().split('T')[0],\n        tomorrow.toISOString().split('T')[0]\n    ));\n\n    // Prepare and send HTTP request\n    node.send({\n        method: 'GET',\n        url: `${API_CONFIG.BASE_URL}?start_date=${startDateFormatted}&end_date=${endDateFormatted}&fallback_status=true`,\n        headers: {\n            'Authorization': `${oauth2Data.tokenType} ${oauth2Data.accessToken}`,\n            'Accept': API_CONFIG.ACCEPT_HEADER\n        }\n    });\n\n    node.done();\n}\n\n// Execute request\nsendTempoRequest();",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "// Code added here will be run once\n// whenever the node is started.\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "finalize": "// Code added here will be run when the\n// node is being stopped or re-deployed.\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "libs": [],
+        "x": 370,
+        "y": 240,
+        "wires": [
+            [
+                "5b7b832374681413"
+            ]
+        ],
+        "icon": "font-awesome/fa-envelope-o"
+    },
+    {
+        "id": "5b7b832374681413",
+        "type": "http request",
+        "z": "f31b3a0f167fe56c",
+        "g": "1fcc793af919d3c7",
+        "name": "",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 630,
+        "y": 240,
+        "wires": [
+            [
+                "26eb12ae112d6364"
+            ]
+        ]
+    },
+    {
+        "id": "fb1117fc697dd4f1",
+        "type": "inject",
+        "z": "f31b3a0f167fe56c",
+        "g": "1fcc793af919d3c7",
+        "name": "Cron",
+        "props": [],
+        "repeat": "",
+        "crontab": "00 12 * * *",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "x": 130,
+        "y": 240,
+        "wires": [
+            [
+                "c9f3ca065afb172a"
+            ]
+        ]
+    },
+    {
+        "id": "26eb12ae112d6364",
+        "type": "function",
+        "z": "f31b3a0f167fe56c",
+        "g": "1fcc793af919d3c7",
+        "name": "Store data to context",
+        "func": "// Constants for Tempo calendar color days allocation\nconst TEMPO_DAYS = {\n    RED: 22,\n    WHITE: 43\n};\n\n// Mapping for colors\nconst COLOR_MAPPING = {\n    'BLUE': 'Bleu',\n    'WHITE': 'Blanc',\n    'RED': 'Rouge'\n};\n\n/**\n * Status messages for node feedback\n */\nconst STATUS = {\n    DONE: (today, tomorrow) => ({\n        fill: \"green\",\n        shape: \"dot\",\n        text: `Today: ${today.date} ${today.color} | Tomorrow: ${tomorrow.date}  ${tomorrow.color}`\n    })\n};\n\n/**\n * Calculate total days in Tempo period (Sept 1st to Aug 31st)\n * @returns {number} Number of days in the period\n */\nfunction calculateTempoPeriodDays() {\n    const currentDate = new Date();\n    const currentYear = currentDate.getFullYear();\n    let startDate, endDate;\n\n    // Determine if we're in the current tempo period (Sept-Dec) or previous tempo period (Jan-Aug)\n    if (currentDate.getMonth() >= 8) {\n        startDate = new Date(currentYear, 8, 1).getTime();\n        endDate = new Date(currentYear + 1, 7, 31).getTime();\n    } else {\n        startDate = new Date(currentYear - 1, 8, 1).getTime();\n        endDate = new Date(currentYear, 7, 31).getTime();\n    }\n\n    return Math.round((endDate - startDate) / (24 * 3600 * 1000));\n}\n\n// Get values from Tempo calendar and count days by color\nconst values = msg.payload.tempo_like_calendars.values;\nconst colorCounts = values.reduce((acc, item) => {\n    acc[item.value] = (acc[item.value] || 0) + 1;\n    return acc;\n}, {});\n\n// Calculate total and remaining days by color\nconst totalPeriodDays = calculateTempoPeriodDays();\nconst remainingDays = {\n    Blue: totalPeriodDays - TEMPO_DAYS.WHITE - TEMPO_DAYS.RED - (colorCounts.BLUE || 0),\n    White: TEMPO_DAYS.WHITE - (colorCounts.WHITE || 0),\n    Red: TEMPO_DAYS.RED - (colorCounts.RED || 0)\n};\n\n// Create output message with formatted data\nmsg = {\n    payload: {\n        today: {\n            date: values[1].start_date.split('T')[0],\n            color: COLOR_MAPPING[values[1].value] || values[1].value\n        },\n        tomorrow: {\n            date: values[0].start_date.split('T')[0],\n            color: COLOR_MAPPING[values[0].value] || values[0].value\n        },\n        days: {\n            passed: {\n                Blue: colorCounts.BLUE || 0,\n                White: colorCounts.WHITE || 0,\n                Red: colorCounts.RED || 0\n            },\n            remaining: remainingDays\n        }\n    }\n};\n\n// Store data in global context\nglobal.set('RTEtempoColor', msg.payload);\n\n// Update node status\nnode.status(STATUS.DONE(\n    msg.payload.today,\n    msg.payload.tomorrow\n));\n\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "// Code added here will be run once\n// whenever the node is started.\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "finalize": "// Code added here will be run when the\n// node is being stopped or re-deployed.\n\n// Set node status\nnode.status({\n    fill: 'grey',\n    shape: 'dot',\n    text: 'Stopped'\n});\n",
+        "libs": [],
+        "x": 880,
+        "y": 240,
+        "wires": [
+            []
+        ],
+        "icon": "font-awesome/fa-database"
+    }
+]
